@@ -1,0 +1,172 @@
+getwd() ## This will get us the working directory
+
+?read.table
+x<-c(1:100) ## gives us list of numbers from 1-100 you need the arrow to save it to the values or letter
+x
+y<-x^2 ## Now y is x as a function of 2
+plot(y~x)
+
+
+x.2<-vector() ## Tells computer x.2 is a vector
+for(i in 1:length(x)){
+  x.2[i]<-x[i]+1
+}
+x.2
+
+our_function<-function(our_argument){
+  x.3<-our_argument+2
+  return(x.3)
+}
+
+our_function(x)
+our_function(x.2)
+
+
+rm(list=ls())
+
+
+install.packages('rentrez')
+library(rentrez)
+help(package='rentrez')
+
+entrez_dbs()
+entrez_db_summary('nuccore')
+entrez_db_searchable('nuccore')
+
+entrez_search(db='nuccore',term='mites')
+entrez_search(db='nuccore',term='trouessartia[ORGN]')
+entrez_search(db='nuccore',term='trouessartia[ORGN] AND coi[GENE]')
+
+entrez_search(db='nuccore',term='trouessartia[ORGN]')
+entrez_search(db='nuccore',term='trouessartia[ORGN]',retmax=40)
+
+trou_search<-entrez_search(db='nuccore',term='trouessartia[ORGN]')
+trou_search$ids ## now we save this and we have the id for those
+
+paper_link<-entrez_link(db='pubmed',id=trou_search$ids, dbfrom='nuccore')
+paper_link$links$nuccore_pubmed
+
+trou_summ<-entrez_summary(db='nuccore',id=trou_search$ids)
+trou_summ
+
+trou_info<-extract_from_esummary(trou_summ,elements=c('organism','caption','gi'))
+trou_info
+t(trou_info)
+
+entrez_search(db='nuccore',term='trouessartia[ORGN]')
+trou_web_search<-entrez_search(db='nuccore',term='trouessartia[ORGN]',use_history = TRUE)
+trou_web_pub<-entrez_link(db='pubmed',dbfrom='nuccore',cmd='neighbor_history',
+                          id=trou_search$ids)
+trou_web_summ<-entrez_summary(db='nuccore', web_history = trou_web_search$web_history)
+
+trou_fasta<-entrez_fetch(db='nuccore',id=trou_search$ids,rettype='fasta')
+write(trou_fasta,file='trouessartia_sequences.fasta')
+
+install.packages('ape')
+library(ape)
+read.FASTA('trouessartia_sequences.fasta')
+
+temp<-tempfile()
+write(trou_fasta,temp)
+read.FASTA(temp)
+
+rm(list=ls()[!ls() %in% c('trou_search')])
+rm(list=ls())
+
+
+dabert<-entrez_search(db='nuccore',term='Dabert AND mites',retmax=891,use_history = TRUE)
+search<-dabert$web_history
+
+fetch.accession<-function(web_history,entries){
+  for( seq_start in seq(1,entries,50)){
+    recs <- entrez_fetch(db="nuccore", web_history=web_history,
+                         rettype="gb", retmax=50, retstart=seq_start)
+    cat(recs, file='flat_files.txt', append=TRUE)
+    cat(seq_start+49, "sequences downloaded\r")
+  }
+}
+
+fetch.accession(search,891)
+
+install.packages('readr')
+library(readr)
+flat_files<-read_file('flat_files.txt')
+str(flat_files)
+flat_files[[1]]
+
+dabert_ft<-unlist(strsplit(flat_files,split='LOCUS'))
+dabert_ft<-dabert_ft[2:length(dabert_ft)]
+dabert_ft[1]
+
+install.packages('stringr')
+library(stringr)
+
+organism_rough<-str_extract(dabert_ft,'ORGANISM\\s+(.+)\r') ## everything should be a \r now
+organism_clean<-str_replace(organism_rough,'ORGANISM\\s+(.+)\r', replacement='\\1')
+voucher_rough<-str_extract(dabert_ft,'voucher=\"(.*)\"')
+voucher_clean<-str_replace(voucher_rough,'voucher=\"(.*)\"',replacement='\\1')
+accession_rough<-str_extract(dabert_ft,'ACCESSION\\s+(.+)\r')
+accession_clean<-str_replace(accession_rough,'ACCESSION\\s+(.+)\r', replacement='\\1')
+product_rough<-str_extract(dabert_ft,'product=\"(.+)\"')
+product_clean<-str_replace(product_rough,'product=\"(.+)\"',replacement = '\\1')
+
+authors_rough<-str_extract(dabert_ft,'AUTHORS\\s+(\\D+)TITLE')
+authors_clean<-str_replace(authors_rough,'AUTHORS\\s+(\\D+)TITLE',replacement='\\1')
+authors_clean<-str_replace_all(authors_clean,'\n\\W+',replacement = ' ')
+
+title_rough<-str_extract(dabert_ft,'TITLE\\s+(\\D+)JOURNAL')
+title_clean<-str_replace(title_rough,'TITLE\\s+(\\D+)JOURNAL',replacement = '\\1')
+title_clean<-str_replace_all(title_clean,'\n\\W+',replacement=' ')
+journal_rough<-str_extract(dabert_ft,'JOURNAL\\s+.+')
+journal_clean<-str_replace(journal_rough,'JOURNAL\\s+(.+)', replacement='\\1')
+
+
+data<-data.frame(organism=organism_clean,voucher=voucher_clean,acc=accession_clean,
+                 product=product_clean,authors=authors_clean,title=title_clean,
+                 journal=journal_clean)
+
+data$product<-trimws(data$product)
+
+data$Name<-data$product
+
+install.packages('dplyr')
+library(dplyr)
+
+install.packages('AnnotationBustR')
+library(AnnotationBustR)
+
+head(mtDNAterms)
+
+data<-left_join(data,mtDNAterms,by=c('product'='Name'))
+data<-left_join(data,rDNAterms,by=c('product'='Name'))
+
+View(head(data))
+
+data$loci<-paste(data$Locus.x,data$Locus.y,sep=',')
+data$loci<-gsub(',NA|NA,','',data$loci)
+table(data$loci)
+table(data$product[data$loci=='NA'])
+
+head(mtDNAterms)
+add.name<-data.frame("COI","CDS", "cytochrome oxidase subunit I", stringsAsFactors = FALSE)
+colnames(add.name)<-colnames(mtDNAterms)
+new.terms<-MergeSearchTerms(add.name, mtDNAterms, SortGenes=FALSE)
+
+data<-data.frame(organism=organism_clean,voucher=voucher_clean,acc=accession_clean,
+                 product=product_clean,authors=authors_clean,title=title_clean,
+                 journal=journal_clean)
+data$product<-trimws(data$product)
+data$Name<-data$product
+data<-left_join(data,new.terms,by=c('product'='Name'))
+data<-left_join(data,rDNAterms,by=c('product'='Name'))
+data$loci<-paste(data$Locus.x,data$Locus.y,sep=',')
+data$loci<-gsub(',NA|NA,','',data$loci)
+table(data$loci)
+table(data$product[data$loci=='NA'])
+
+names(data)
+data<-data[c(1:7,13)]
+View(data)
+
+write.csv(data,file='dabert_mites.csv')
+
